@@ -6,6 +6,33 @@ const app = document.querySelector<HTMLDivElement>("#app")!;
 let doc: AudioDoc | null = null;
 let openPath: string | null = null;
 let selected = 0;
+let unregistered: Array<{ path: string; ext: string }> = [];
+let findings: Array<{ level: string; message: string }> = [];
+
+/** Refresh the on-disk clips not present in any manifest (sfx/music only). */
+async function refreshScan(): Promise<void> {
+  if (!doc || doc.kind === "voices") {
+    unregistered = [];
+    return;
+  }
+  const res = await bridge.scan();
+  unregistered = res.ok ? (JSON.parse(res.output) as Array<{ path: string; ext: string }>) : [];
+}
+
+/** Live validation reflects the last saved state — a deliberate, simple
+ *  contract; the export button always does a fresh validate-then-write. */
+async function refreshValidation(): Promise<void> {
+  if (!doc || !openPath) {
+    findings = [];
+    return;
+  }
+  const res = await bridge.validate(openPath);
+  try {
+    findings = JSON.parse(res.output) as Array<{ level: string; message: string }>;
+  } catch {
+    findings = [];
+  }
+}
 
 function kindFromPath(path: string): ManifestKind {
   const p = path.toLowerCase();
@@ -32,6 +59,15 @@ function render(): void {
   const fields = Object.keys(entry)
     .map((k) => fieldInput(k, (entry as Record<string, unknown>)[k]))
     .join("");
+  const unreg = unregistered
+    .map((u, i) => `<li class="unreg" data-u="${i}">＋ ${u.path}</li>`)
+    .join("");
+  const unregSection =
+    doc.kind === "voices" ? "" : `<h3>Unregistered</h3><ul id="unreg-list">${unreg}</ul>`;
+
+  const errs = findings.filter((f) => f.level === "error").length;
+  const warns = findings.filter((f) => f.level === "warning").length;
+  const ribbonClass = errs > 0 ? "bad" : warns > 0 ? "warn" : "good";
 
   app.innerHTML = `
     <header class="ribbon">
@@ -41,10 +77,11 @@ function render(): void {
       <button id="export" class="gold">Export to game</button>
       <button id="undo" ${doc.canUndo ? "" : "disabled"}>↶</button>
       <button id="redo" ${doc.canRedo ? "" : "disabled"}>↷</button>
+      <span class="valid ${ribbonClass}">${errs}✕ ${warns}⚠</span>
       <span id="status">${doc.kind} — ${entries.length} entries${doc.dirty ? " • unsaved" : ""}</span>
     </header>
     <main class="cols">
-      <section class="library"><ul id="list">${rows}</ul></section>
+      <section class="library"><ul id="list">${rows}</ul>${unregSection}</section>
       <section class="inspector"><form id="form">${fields}</form></section>
     </main>`;
 
@@ -59,9 +96,30 @@ function render(): void {
       render();
     }),
   );
+  document.querySelectorAll("#unreg-list li").forEach((li) =>
+    li.addEventListener("click", () => addUnregistered(Number((li as HTMLElement).dataset.u))),
+  );
   document.querySelectorAll<HTMLInputElement>("#form [data-key]").forEach((input) =>
     input.addEventListener("change", () => onField(input)),
   );
+}
+
+/** Register an on-disk clip into the open manifest with a suggested kebab id. */
+function addUnregistered(i: number): void {
+  if (!doc) return;
+  const clip = unregistered[i];
+  if (!clip) return;
+  const id = suggestId(clip.path);
+  doc.edit((m) => {
+    if (m.kind === "sfx") {
+      m.entries.push({ id, asset: clip.path, category: "uncategorized", duration: 0 });
+    } else if (m.kind === "music") {
+      m.entries.push({ id, asset: clip.path, loop: false, duration: 0 });
+    }
+  });
+  unregistered.splice(i, 1);
+  selected = doc.entries.length - 1;
+  render();
 }
 
 function fieldInput(key: string, value: unknown): string {
@@ -93,6 +151,8 @@ async function onOpen(): Promise<void> {
   doc = AudioDoc.fromJson(kind, res.output);
   openPath = path;
   selected = 0;
+  await refreshScan();
+  await refreshValidation();
   render();
 }
 
@@ -100,6 +160,7 @@ async function onSave(): Promise<void> {
   if (!doc || !openPath) return;
   const res = await bridge.saveManifest(openPath, doc.toJson());
   if (res.ok) doc.markSaved();
+  await refreshValidation();
   setStatus(res.output);
   render();
 }
@@ -120,9 +181,5 @@ window.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.key.toLowerCase() === "z") { doc.undo(); render(); e.preventDefault(); }
   if (e.ctrlKey && e.key.toLowerCase() === "y") { doc.redo(); render(); e.preventDefault(); }
 });
-
-// `suggestId` is used by the unregistered-clips flow (Task 10); referenced here
-// so the import is live and the module tree is complete.
-void suggestId;
 
 render();

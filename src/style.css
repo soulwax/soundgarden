@@ -14,3 +14,9 @@ body { margin: 0; font-family: system-ui, sans-serif; background: #10131a; color
 .inspector form { display: grid; gap: .6rem; max-width: 480px; }
 .inspector label { display: grid; gap: .2rem; font-size: .85rem; }
 .inspector input { background: #0e1118; color: #e8e6df; border: 1px solid #2a3140; padding: .3rem; }
+.valid { padding: .1rem .5rem; border-radius: 3px; font-size: .8rem; }
+.valid.good { background: #1e3a24; color: #9fe0a8; }
+.valid.warn { background: #3a341e; color: #e6d79f; }
+.valid.bad  { background: #3a1e1e; color: #e6a0a0; }
+.unreg { opacity: .85; font-style: italic; }
+.library h3 { margin: .8rem .75rem .2rem; font-size: .8rem; text-transform: uppercase; opacity: .7; }
