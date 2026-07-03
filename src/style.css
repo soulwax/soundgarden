@@ -1,3 +1,16 @@
 :root { color-scheme: dark; }
 body { margin: 0; font-family: system-ui, sans-serif; background: #10131a; color: #e8e6df; }
 #app { padding: 1rem; }
+.ribbon { display: flex; gap: .5rem; align-items: center; padding: .5rem 1rem; background: #161a23; }
+.ribbon h1 { font-size: 1rem; margin: 0 1rem 0 0; }
+.ribbon button.gold { background: linear-gradient(#e6c069, #c79a3a); color: #201a0a; border: none; }
+.ribbon #status { margin-left: auto; opacity: .8; font-size: .85rem; }
+.cols { display: grid; grid-template-columns: 260px 1fr; height: calc(100vh - 48px); }
+.library { overflow: auto; border-right: 1px solid #262b36; }
+.library ul { list-style: none; margin: 0; padding: 0; }
+.library li { padding: .35rem .75rem; cursor: pointer; }
+.library li.sel { background: #232a38; }
+.inspector { padding: 1rem; }
+.inspector form { display: grid; gap: .6rem; max-width: 480px; }
+.inspector label { display: grid; gap: .2rem; font-size: .85rem; }
+.inspector input { background: #0e1118; color: #e8e6df; border: 1px solid #2a3140; padding: .3rem; }
