@@ -8,6 +8,11 @@ let openPath: string | null = null;
 let selected = 0;
 let unregistered: Array<{ path: string; ext: string }> = [];
 let findings: Array<{ level: string; message: string }> = [];
+let aiEnabled = false;
+let knownCategories: string[] = [];
+
+type Proposal = { path: string; id: string; category?: string; loop?: boolean };
+let proposals: Proposal[] = [];
 
 /** Refresh the on-disk clips not present in any manifest (sfx/music only). */
 async function refreshScan(): Promise<void> {
@@ -69,6 +74,18 @@ function render(): void {
   const warns = findings.filter((f) => f.level === "warning").length;
   const ribbonClass = errs > 0 ? "bad" : warns > 0 ? "warn" : "good";
 
+  const propRows = proposals
+    .map(
+      (p, i) =>
+        `<li><code>${p.id}</code> ← ${p.path} <em>${p.category ?? ""}</em>
+         <button data-apply="${i}">apply</button><button data-discard="${i}">✕</button></li>`,
+    )
+    .join("");
+  const proposalPanel =
+    proposals.length > 0
+      ? `<div class="proposals"><h3>Gemini suggestions</h3><ul>${propRows}</ul></div>`
+      : "";
+
   app.innerHTML = `
     <header class="ribbon">
       <h1>soundgarden</h1>
@@ -77,12 +94,13 @@ function render(): void {
       <button id="export" class="gold">Export to game</button>
       <button id="undo" ${doc.canUndo ? "" : "disabled"}>↶</button>
       <button id="redo" ${doc.canRedo ? "" : "disabled"}>↷</button>
+      ${aiEnabled && doc.kind !== "voices" ? '<button id="ai-sort">✦ Sort unregistered</button>' : ""}
       <span class="valid ${ribbonClass}">${errs}✕ ${warns}⚠</span>
       <span id="status">${doc.kind} — ${entries.length} entries${doc.dirty ? " • unsaved" : ""}</span>
     </header>
     <main class="cols">
       <section class="library"><ul id="list">${rows}</ul>${unregSection}</section>
-      <section class="inspector"><form id="form">${fields}</form></section>
+      <section class="inspector">${proposalPanel}<form id="form">${fields}</form></section>
     </main>`;
 
   document.querySelector("#open")!.addEventListener("click", onOpen);
@@ -99,9 +117,57 @@ function render(): void {
   document.querySelectorAll("#unreg-list li").forEach((li) =>
     li.addEventListener("click", () => addUnregistered(Number((li as HTMLElement).dataset.u))),
   );
+  document.querySelector("#ai-sort")?.addEventListener("click", () => void onAiSort());
+  document.querySelectorAll<HTMLButtonElement>(".proposals [data-apply]").forEach((btn) =>
+    btn.addEventListener("click", () => applyProposal(Number(btn.dataset.apply))),
+  );
+  document.querySelectorAll<HTMLButtonElement>(".proposals [data-discard]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      proposals.splice(Number(btn.dataset.discard), 1);
+      render();
+    }),
+  );
   document.querySelectorAll<HTMLInputElement>("#form [data-key]").forEach((input) =>
     input.addEventListener("change", () => onField(input)),
   );
+}
+
+/** Send the unregistered clips to Gemini; parsed proposals render as
+ *  apply / discard rows. Applying routes through `doc.edit` (undoable). */
+async function onAiSort(): Promise<void> {
+  if (!doc || unregistered.length === 0) return;
+  setStatus("Asking Gemini…");
+  const context = JSON.stringify({
+    kind: doc.kind,
+    clips: unregistered.map((u) => u.path),
+    known_categories: knownCategories,
+  });
+  const res = await bridge.llmSuggest("categorize_clips", context);
+  if (!res.ok) return setStatus(res.output);
+  try {
+    proposals = JSON.parse(res.output) as Proposal[];
+  } catch {
+    proposals = [];
+    return setStatus("Gemini returned something I couldn't parse — try again.");
+  }
+  render();
+}
+
+function applyProposal(i: number): void {
+  if (!doc) return;
+  const p = proposals[i];
+  if (!p) return;
+  doc.edit((m) => {
+    if (m.kind === "sfx") {
+      m.entries.push({ id: p.id, asset: p.path, category: p.category ?? "uncategorized", duration: 0 });
+    } else if (m.kind === "music") {
+      m.entries.push({ id: p.id, asset: p.path, loop: p.loop ?? false, duration: 0 });
+    }
+  });
+  const u = unregistered.findIndex((x) => x.path === p.path);
+  if (u >= 0) unregistered.splice(u, 1);
+  proposals.splice(i, 1);
+  render();
 }
 
 /** Register an on-disk clip into the open manifest with a suggested kebab id. */
@@ -151,6 +217,16 @@ async function onOpen(): Promise<void> {
   doc = AudioDoc.fromJson(kind, res.output);
   openPath = path;
   selected = 0;
+  proposals = [];
+  aiEnabled = await bridge.llmAvailable();
+  const known = await bridge.assets();
+  if (known.ok) {
+    try {
+      knownCategories = (JSON.parse(known.output) as { categories?: string[] }).categories ?? [];
+    } catch {
+      knownCategories = [];
+    }
+  }
   await refreshScan();
   await refreshValidation();
   render();
