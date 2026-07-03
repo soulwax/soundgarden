@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "soundgarden",
+  "version": "0.1.0",
+  "identifier": "dev.echowarrior.soundgarden",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "soundgarden — EchoWarrior Audio Studio",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true
+      }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "publisher": "soulwax",
+    "copyright": "© 2026 soulwax",
+    "category": "DeveloperTool",
+    "shortDescription": "EchoWarrior audio studio",
+    "longDescription": "soundgarden — an audio studio for EchoWarrior. Browse, audition, and wire the game's sounds, music, and voices, then export the manifests the game plays."
+  }
+}

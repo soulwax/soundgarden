@@ -1,0 +1,26 @@
+# soundgarden — Tauri shell (own crate, NOT part of the EchoWarrior workspace).
+#
+# Thin: it only shells out to the `audio` CLI and reads a Gemini key at runtime.
+# It does not depend on the game crate, so the app and game evolve independently.
+
+# Stand alone: never get absorbed into a parent Cargo workspace (the game repo).
+[workspace]
+
+[package]
+name = "soundgarden"
+version = "0.1.0"
+description = "EchoWarrior audio studio (Tauri shell)"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+keyring = "3"
+serde_json = "1"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

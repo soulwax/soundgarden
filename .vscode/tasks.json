@@ -1,0 +1,79 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "soundgarden: build audio (dependency)",
+      "type": "shell",
+      "command": "cargo build --bin audio",
+      "options": {
+        "cwd": "${workspaceFolder}/../.."
+      },
+      "problemMatcher": ["$rustc"],
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "detail": "Build the game's audio CLI that soundgarden shells out to at runtime."
+    },
+    {
+      "label": "soundgarden: install deps",
+      "type": "shell",
+      "command": "npm install",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "silent" },
+      "detail": "npm install for the web frontend."
+    },
+    {
+      "label": "soundgarden: dev (debug)",
+      "type": "shell",
+      "command": "npm run tauri:dev",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "AUDIO_BIN": "${workspaceFolder}/../../target/debug/audio.exe"
+        }
+      },
+      "dependsOn": ["soundgarden: build audio (dependency)"],
+      "isBackground": true,
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "detail": "Run soundgarden in dev mode (hot-reload UI, debug Rust shell). Uses the debug audio binary."
+    },
+    {
+      "label": "soundgarden: build frontend",
+      "type": "shell",
+      "command": "npm run build",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "detail": "tsc + vite build of the web frontend into dist/."
+    },
+    {
+      "label": "soundgarden: build release (installer)",
+      "type": "shell",
+      "command": "npm run tauri:build",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "AUDIO_BIN": "${workspaceFolder}/../../target/debug/audio.exe"
+        }
+      },
+      "dependsOn": ["soundgarden: build audio (dependency)"],
+      "problemMatcher": ["$rustc"],
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "detail": "Build the optimized release exe + NSIS Windows installer (target/release/bundle/nsis)."
+    },
+    {
+      "label": "soundgarden: run release exe",
+      "type": "shell",
+      "command": "${workspaceFolder}/src-tauri/target/release/soundgarden.exe",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "AUDIO_BIN": "${workspaceFolder}/../../target/debug/audio.exe"
+        }
+      },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" },
+      "detail": "Launch the already-built release soundgarden.exe."
+    }
+  ]
+}

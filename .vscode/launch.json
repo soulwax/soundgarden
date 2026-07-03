@@ -1,0 +1,72 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "▶ soundgarden (dev)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run tauri:dev",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "AUDIO_BIN": "${workspaceFolder}/../../target/debug/audio.exe"
+      },
+      "preLaunchTask": "soundgarden: build audio (dependency)",
+      "presentation": {
+        "group": "soundgarden",
+        "order": 1
+      }
+    },
+    {
+      "name": "▶ soundgarden (release exe)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "\"${workspaceFolder}/src-tauri/target/release/soundgarden.exe\"",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "AUDIO_BIN": "${workspaceFolder}/../../target/debug/audio.exe"
+      },
+      "preLaunchTask": "soundgarden: build audio (dependency)",
+      "presentation": {
+        "group": "soundgarden",
+        "order": 2
+      }
+    },
+    {
+      "name": "soundgarden: debug Rust shell (LLDB)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--manifest-path=./src-tauri/Cargo.toml", "--no-default-features"]
+      },
+      "program": "${workspaceFolder}/src-tauri/target/debug/soundgarden.exe",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "AUDIO_BIN": "${workspaceFolder}/../../target/debug/audio.exe"
+      },
+      "preLaunchTask": "soundgarden: build audio (dependency)",
+      "sourceLanguages": ["rust"],
+      "presentation": {
+        "group": "soundgarden",
+        "order": 3
+      }
+    },
+    {
+      "name": "soundgarden: debug Rust shell (Windows/MSVC)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/src-tauri/target/debug/soundgarden.exe",
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        {
+          "name": "AUDIO_BIN",
+          "value": "${workspaceFolder}/../../target/debug/audio.exe"
+        }
+      ],
+      "preLaunchTask": "soundgarden: build audio (dependency)",
+      "presentation": {
+        "group": "soundgarden",
+        "order": 4
+      }
+    }
+  ]
+}
