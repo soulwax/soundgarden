@@ -64,6 +64,21 @@ export function exportManifest(path: string, json: string): Promise<BridgeResult
   return call("export_manifest", { path, json });
 }
 
+/** Whether a Gemini key is configured (keychain / env / secrets.toml). */
+export async function llmAvailable(): Promise<boolean> {
+  const invoke = await getInvoke();
+  if (!invoke) return false;
+  try {
+    return await invoke<boolean>("llm_available");
+  } catch {
+    return false;
+  }
+}
+/** Ask Gemini for structured help; returns the model's (JSON) text. */
+export function llmSuggest(task: string, context: string): Promise<BridgeResult> {
+  return call("llm_suggest", { task, context });
+}
+
 const FILTERS = [{ name: "Audio manifest", extensions: ["toml", "json"] }];
 
 export async function openManifestDialog(): Promise<string | null> {

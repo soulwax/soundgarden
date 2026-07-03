@@ -11,6 +11,8 @@
     windows_subsystem = "windows"
 )]
 
+mod secrets;
+
 use std::process::Command;
 
 fn audio_bin() -> String {
@@ -115,6 +117,58 @@ fn export_manifest(path: String, json: String) -> Result<String, String> {
     result.map(|_| format!("Exported to the game: {path}"))
 }
 
+#[tauri::command]
+fn llm_available() -> bool {
+    secrets::gemini_key().is_some()
+}
+
+/// Ask Gemini for structured help. `task` names the assist kind (e.g.
+/// "categorize", "voice_profile"); `context` is a JSON string the UI builds. The
+/// returned string is the model's text — expected to be JSON the UI parses. The
+/// key never leaves this process.
+#[tauri::command]
+async fn llm_suggest(task: String, context: String) -> Result<String, String> {
+    let key = secrets::gemini_key().ok_or(
+        "No Gemini key found. Add one to the OS keychain, set GEMINI_API_KEY, or create secrets.toml.",
+    )?;
+
+    let prompt = format!(
+        "You are an audio-manifest assistant for a game. Task: {task}.\n\
+         Respond with ONLY compact JSON, no prose. Context:\n{context}"
+    );
+    let body = serde_json::json!({
+        "contents": [{ "parts": [{ "text": prompt }] }]
+    });
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+    );
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Gemini request failed: {e}"))?;
+    let status = resp.status();
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("read Gemini response: {e}"))?;
+    if !status.is_success() {
+        // Do not echo the URL (it carries the key); report status + body only.
+        return Err(format!("Gemini returned {status}: {text}"));
+    }
+    // Extract the model text from the response envelope.
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("parse Gemini JSON: {e}"))?;
+    let out = v["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    Ok(out)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -126,6 +180,8 @@ fn main() {
             load_manifest,
             save_manifest,
             export_manifest,
+            llm_available,
+            llm_suggest,
         ])
         .run(tauri::generate_context!())
         .expect("error while running soundgarden");
