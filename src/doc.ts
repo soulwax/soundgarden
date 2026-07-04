@@ -29,9 +29,9 @@ export interface VoiceEntry {
 }
 
 export type Manifest =
-  | { kind: "sfx"; entries: SfxEntry[] }
-  | { kind: "music"; entries: TrackEntry[] }
-  | { kind: "voices"; entries: VoiceEntry[] };
+  | { kind: "sfx"; entries: SfxEntry[]; remove: string[] }
+  | { kind: "music"; entries: TrackEntry[]; remove: string[] }
+  | { kind: "voices"; entries: VoiceEntry[]; remove: string[] };
 
 // The wire shape uses the game's array keys: sfx / track / voice.
 const WIRE_KEY: Record<ManifestKind, string> = {
@@ -46,16 +46,20 @@ function fromWire(kind: ManifestKind, json: string): { manifest: Manifest; extra
   // Keep every top-level key that is not the entries array (e.g. the
   // schema / schema_version headers mod_check reads) so a load → save
   // round-trip through the editor is lossless.
+  const remove = Array.isArray(obj.remove) ? (obj.remove as string[]) : [];
   const extras: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (k !== key) extras[k] = v;
+    if (k !== key && k !== "remove") extras[k] = v;
   }
   const entries = (obj[key] ?? []) as never[];
-  return { manifest: { kind, entries } as Manifest, extras };
+  return { manifest: { kind, entries, remove } as Manifest, extras };
 }
 
 function toWire(m: Manifest, extras: Record<string, unknown>): string {
-  return JSON.stringify({ ...extras, [WIRE_KEY[m.kind]]: m.entries }, null, 2);
+  const doc: Record<string, unknown> = { ...extras };
+  if (m.remove.length > 0) doc.remove = m.remove;
+  doc[WIRE_KEY[m.kind]] = m.entries;
+  return JSON.stringify(doc, null, 2);
 }
 
 function clone(m: Manifest): Manifest {
@@ -85,6 +89,12 @@ export class AudioDoc {
   }
   get entries(): Manifest["entries"] {
     return this.current.entries;
+  }
+  get remove(): string[] {
+    return this.current.remove;
+  }
+  get manifest(): Manifest {
+    return this.current;
   }
   get dirty(): boolean {
     return toWire(this.current, this.extras) !== this.savedSnapshot;

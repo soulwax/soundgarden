@@ -69,4 +69,20 @@ describe("AudioDoc", () => {
     expect(out.schema).toBe(1);
     expect(out.schema_version).toBe("1.0.0");
   });
+
+  it("reads and round-trips a remove list, undoably", () => {
+    const doc = AudioDoc.fromJson("sfx", JSON.stringify({ remove: ["a-one"], sfx: [] }));
+    expect(doc.remove).toEqual(["a-one"]);
+    doc.edit((m) => m.remove.push("a-two"));
+    expect(doc.remove).toEqual(["a-one", "a-two"]);
+    doc.undo();
+    expect(doc.remove).toEqual(["a-one"]);
+    const out = JSON.parse(doc.toJson());
+    expect(out.remove).toEqual(["a-one"]);
+  });
+
+  it("omits an empty remove list from the wire shape", () => {
+    const doc = AudioDoc.fromJson("sfx", SFX_JSON);
+    expect(JSON.parse(doc.toJson()).remove).toBeUndefined();
+  });
 });
