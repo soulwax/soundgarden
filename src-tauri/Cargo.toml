@@ -25,6 +25,20 @@ serde_json = "1"
 # on its own runtime, tokio only provides the reqwest driver.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
+base64 = "0.22"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
+
+# The dist profile (game repo scripts/dist.ps1 / dist.sh build with
+# `tauri build -- --profile speed_trace`): full-speed optimization plus
+# out-of-line debug info so trace tools can symbolize the shipped app. Mirrors
+# [profile.speed_trace] in the game's Cargo.toml — keep the two in step.
+[profile.speed_trace]
+inherits = "release"
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = "full"
+split-debuginfo = "packed"
+strip = "none"

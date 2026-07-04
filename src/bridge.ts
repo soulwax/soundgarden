@@ -48,20 +48,36 @@ export function assets(): Promise<BridgeResult> {
   return call("audio_assets", {});
 }
 /** Audio files on disk not in any manifest (JSON array). */
-export function scan(dir?: string): Promise<BridgeResult> {
-  return call("audio_scan", { dir: dir ?? null });
+export function scan(dir?: string, modId?: string): Promise<BridgeResult> {
+  return call("audio_scan", { dir: dir ?? null, modId: modId ?? null });
+}
+/** Installed mods (id/name/version/description) as JSON. */
+export function mods(): Promise<BridgeResult> {
+  return call("audio_mods", {});
+}
+/** Effective (merged) manifest with origin tags; modId scopes to one mod. */
+export function effective(kind: "sfx" | "music" | "voices", modId?: string): Promise<BridgeResult> {
+  return call("audio_effective", { kind, modId: modId ?? null });
+}
+/** Scaffold a new mod (kebab-case id). */
+export function initMod(id: string, name?: string): Promise<BridgeResult> {
+  return call("audio_init_mod", { id, name: name ?? null });
+}
+/** Audio clip bytes as base64 for audition. */
+export function readClip(path: string, modId?: string): Promise<BridgeResult> {
+  return call("read_clip", { path, modId: modId ?? null });
 }
 /** Load a manifest file as a JSON string (editor in-memory form). */
-export function loadManifest(path: string): Promise<BridgeResult> {
-  return call("load_manifest", { path });
+export function loadManifest(path: string, kind?: string): Promise<BridgeResult> {
+  return call("load_manifest", { path, kind: kind ?? null });
 }
 /** Save an editor manifest (JSON string) to `path` (.toml converts). */
-export function saveManifest(path: string, json: string): Promise<BridgeResult> {
-  return call("save_manifest", { path, json });
+export function saveManifest(path: string, json: string, kind?: string): Promise<BridgeResult> {
+  return call("save_manifest", { path, json, kind: kind ?? null });
 }
 /** Export to the game: validates first, refuses invalid. */
-export function exportManifest(path: string, json: string): Promise<BridgeResult> {
-  return call("export_manifest", { path, json });
+export function exportManifest(path: string, json: string, kind?: string): Promise<BridgeResult> {
+  return call("export_manifest", { path, json, kind: kind ?? null });
 }
 
 /** Whether a Gemini key is configured (keychain / env / secrets.toml). */

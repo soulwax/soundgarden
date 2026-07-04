@@ -19,9 +19,19 @@ fn audio_bin() -> String {
     std::env::var("AUDIO_BIN").unwrap_or_else(|_| "audio".to_string())
 }
 
+/// The EchoWarrior repo root the `audio` CLI must run from (its data reads are
+/// repo-relative). `GAME_ROOT` env wins; the default `../..` matches running
+/// from `tools/soundgarden` in dev.
+fn game_root() -> std::path::PathBuf {
+    std::env::var("GAME_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("../.."))
+}
+
 fn run_audio(args: &[&str]) -> Result<String, String> {
     let output = Command::new(audio_bin())
         .args(args)
+        .current_dir(game_root())
         .output()
         .map_err(|e| format!("could not run `audio` (set AUDIO_BIN or add it to PATH): {e}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -70,20 +80,79 @@ fn audio_assets() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn audio_scan(dir: Option<String>) -> Result<String, String> {
-    match dir {
-        Some(d) => run_audio(&["scan", "--dir", &d]),
-        None => run_audio(&["scan"]),
+fn audio_scan(dir: Option<String>, mod_id: Option<String>) -> Result<String, String> {
+    let mut args: Vec<String> = vec!["scan".into()];
+    if let Some(d) = dir {
+        args.extend(["--dir".into(), d]);
     }
+    if let Some(id) = mod_id {
+        args.extend(["--mod".into(), id]);
+    }
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_audio(&refs)
+}
+
+#[tauri::command]
+fn audio_mods() -> Result<String, String> {
+    run_audio(&["mods"])
+}
+
+#[tauri::command]
+fn audio_effective(kind: String, mod_id: Option<String>) -> Result<String, String> {
+    match mod_id {
+        Some(id) => run_audio(&["effective", "--kind", &kind, "--mod", &id]),
+        None => run_audio(&["effective", "--kind", &kind]),
+    }
+}
+
+#[tauri::command]
+fn audio_init_mod(id: String, name: Option<String>) -> Result<String, String> {
+    match name {
+        Some(n) => run_audio(&["init-mod", &id, "--name", &n]),
+        None => run_audio(&["init-mod", &id]),
+    }
+}
+
+const MAX_CLIP_BYTES: u64 = 20 * 1024 * 1024;
+
+/// Read an audio clip for audition, resolving the mod's Assets/ first, then
+/// vanilla — the same order the engine uses. Returns base64 so the web side
+/// can build a Blob URL; nothing touches disk and no asset-protocol scope is
+/// opened.
+#[tauri::command]
+fn read_clip(path: String, mod_id: Option<String>) -> Result<String, String> {
+    use base64::Engine;
+    let root = game_root();
+    let mut candidates = Vec::new();
+    if let Some(id) = &mod_id {
+        candidates.push(root.join("Mods").join(id).join("Assets").join(&path));
+    }
+    candidates.push(root.join("Assets").join(&path));
+    for candidate in candidates {
+        let Ok(meta) = std::fs::metadata(&candidate) else {
+            continue;
+        };
+        if meta.len() > MAX_CLIP_BYTES {
+            return Err(format!("clip is too large to audition ({} bytes)", meta.len()));
+        }
+        let bytes = std::fs::read(&candidate).map_err(|e| format!("read clip: {e}"))?;
+        return Ok(base64::engine::general_purpose::STANDARD.encode(bytes));
+    }
+    Err(format!("clip '{path}' not found in the mod or vanilla Assets/"))
 }
 
 /// Load a manifest (.toml/.json) as a JSON string (the editor's in-memory form),
 /// via `audio convert` so it uses the same validated, lossless path the game trusts.
 #[tauri::command]
-fn load_manifest(path: String) -> Result<String, String> {
+fn load_manifest(path: String, kind: Option<String>) -> Result<String, String> {
     let tmp = temp_path("json");
     let tmp_str = tmp.to_string_lossy().into_owned();
-    run_audio(&["convert", &path, &tmp_str])?;
+    let mut args: Vec<String> = vec!["convert".into(), path.clone(), tmp_str.clone()];
+    if let Some(k) = &kind {
+        args.extend(["--kind".into(), k.clone()]);
+    }
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_audio(&refs)?;
     let json = std::fs::read_to_string(&tmp).map_err(|e| format!("read converted manifest: {e}"));
     let _ = std::fs::remove_file(&tmp);
     json
@@ -91,11 +160,16 @@ fn load_manifest(path: String) -> Result<String, String> {
 
 /// Save an editor manifest (JSON string) to `path` (.toml converts for the game).
 #[tauri::command]
-fn save_manifest(path: String, json: String) -> Result<String, String> {
+fn save_manifest(path: String, json: String, kind: Option<String>) -> Result<String, String> {
     let tmp = temp_path("json");
     let tmp_str = tmp.to_string_lossy().into_owned();
     std::fs::write(&tmp, &json).map_err(|e| format!("stage manifest: {e}"))?;
-    let result = run_audio(&["convert", &tmp_str, &path]);
+    let mut args: Vec<String> = vec!["convert".into(), tmp_str.clone(), path.clone()];
+    if let Some(k) = &kind {
+        args.extend(["--kind".into(), k.clone()]);
+    }
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let result = run_audio(&refs);
     let _ = std::fs::remove_file(&tmp);
     result.map(|_| format!("saved {path}"))
 }
@@ -103,16 +177,26 @@ fn save_manifest(path: String, json: String) -> Result<String, String> {
 /// Export to the game: validate first, then write. Refuses to write an invalid
 /// manifest, so the editor can never break the running game.
 #[tauri::command]
-fn export_manifest(path: String, json: String) -> Result<String, String> {
+fn export_manifest(path: String, json: String, kind: Option<String>) -> Result<String, String> {
     let tmp = temp_path("json");
     let tmp_str = tmp.to_string_lossy().into_owned();
     std::fs::write(&tmp, &json).map_err(|e| format!("stage manifest for export: {e}"))?;
     // validate exits non-zero (-> Err) on errors.
-    if let Err(findings) = run_audio(&["validate", &tmp_str]) {
+    let mut validate_args: Vec<String> = vec!["validate".into(), tmp_str.clone()];
+    if let Some(k) = &kind {
+        validate_args.extend(["--kind".into(), k.clone()]);
+    }
+    let validate_refs: Vec<&str> = validate_args.iter().map(String::as_str).collect();
+    if let Err(findings) = run_audio(&validate_refs) {
         let _ = std::fs::remove_file(&tmp);
         return Err(format!("Not exported — the manifest has problems:\n{findings}"));
     }
-    let result = run_audio(&["convert", &tmp_str, &path]);
+    let mut convert_args: Vec<String> = vec!["convert".into(), tmp_str.clone(), path.clone()];
+    if let Some(k) = &kind {
+        convert_args.extend(["--kind".into(), k.clone()]);
+    }
+    let convert_refs: Vec<&str> = convert_args.iter().map(String::as_str).collect();
+    let result = run_audio(&convert_refs);
     let _ = std::fs::remove_file(&tmp);
     result.map(|_| format!("Exported to the game: {path}"))
 }
@@ -177,6 +261,10 @@ fn main() {
             audio_schema,
             audio_assets,
             audio_scan,
+            audio_mods,
+            audio_effective,
+            audio_init_mod,
+            read_clip,
             load_manifest,
             save_manifest,
             export_manifest,

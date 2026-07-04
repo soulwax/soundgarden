@@ -3012,6 +3012,7 @@ dependencies = [
 name = "soundgarden"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "keyring",
  "reqwest 0.12.28",
  "serde_json",
