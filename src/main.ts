@@ -20,8 +20,28 @@ let modId: string | null = null;
 let modList: Array<{ id: string; name: string }> = [];
 let baseEntries: Array<Record<string, unknown>> | null = null;
 
+// Audition playback: shared audio element and current playing URL for cleanup.
+const player = new Audio();
+let playingUrl: string | null = null;
+
+const CLIP_MIME: Record<string, string> = {
+  ogg: "audio/ogg", wav: "audio/wav", mp3: "audio/mpeg", flac: "audio/flac",
+};
+
 type Proposal = { path: string; id: string; category?: string; loop?: boolean };
 let proposals: Proposal[] = [];
+
+/** Play a clip from an asset path, managing the shared audio element and Blob URL. */
+async function playClip(assetPath: string): Promise<void> {
+  const res = await bridge.readClip(assetPath, modId ?? undefined);
+  if (!res.ok) return setStatus(res.output);
+  const ext = assetPath.split(".").pop()?.toLowerCase() ?? "";
+  const bytes = Uint8Array.from(atob(res.output), (c) => c.charCodeAt(0));
+  if (playingUrl) URL.revokeObjectURL(playingUrl);
+  playingUrl = URL.createObjectURL(new Blob([bytes], { type: CLIP_MIME[ext] ?? "audio/ogg" }));
+  player.src = playingUrl;
+  player.play().catch(() => setStatus(`Cannot play .${ext} — codec not available in the webview.`));
+}
 
 /** Refresh the on-disk clips not present in any manifest (sfx/music only). */
 async function refreshScan(): Promise<void> {
@@ -53,6 +73,12 @@ function kindFromPath(path: string): ManifestKind {
   if (p.includes("voice")) return "voices";
   if (p.includes("music") || p.includes("track")) return "music";
   return "sfx";
+}
+
+/** Get the asset path for a library entry, or empty string if voices (no play button). */
+function assetOf(entry: Record<string, unknown>): string {
+  const asset = entry.asset;
+  return typeof asset === "string" ? asset : "";
 }
 
 /** Options for the ribbon mod selector: Vanilla, each installed mod, then a
@@ -98,11 +124,17 @@ function render(): void {
         .map((r, i) => {
           const badge = r.origin === "vanilla" ? "" : `<span class="badge ${r.origin}">${r.origin}</span>`;
           const cls = [i === selected ? "sel" : "", r.hidden ? "hidden-row" : ""].join(" ").trim();
-          return `<li class="${cls}" data-i="${i}">▶ ${String(r.entry.id)} ${badge}</li>`;
+          const asset = assetOf(r.entry as Record<string, unknown>);
+          const playBtn = asset ? `<button class="play" data-play="${asset}">▶</button>` : "";
+          return `<li class="${cls}" data-i="${i}">${playBtn} ${String(r.entry.id)} ${badge}</li>`;
         })
         .join("")
     : entries
-        .map((e, i) => `<li class="${i === selected ? "sel" : ""}" data-i="${i}">${String(e.id)}</li>`)
+        .map((e, i) => {
+          const asset = assetOf(e);
+          const playBtn = asset ? `<button class="play" data-play="${asset}">▶</button>` : "";
+          return `<li class="${i === selected ? "sel" : ""}" data-i="${i}">${playBtn} ${String(e.id)}</li>`;
+        })
         .join("");
   const selectedRow = effectiveRows ? effectiveRows[selected] : null;
   const entry = (selectedRow ? selectedRow.entry : entries[selected]) ?? {};
@@ -121,7 +153,7 @@ function render(): void {
         : ""
     : "";
   const unreg = unregistered
-    .map((u, i) => `<li class="unreg" data-u="${i}">＋ ${u.path}</li>`)
+    .map((u, i) => `<li class="unreg" data-u="${i}"><button class="play" data-play="${u.path}">▶</button> ${u.path}</li>`)
     .join("");
   const unregSection =
     doc.kind === "voices" ? "" : `<h3>Unregistered</h3><ul id="unreg-list">${unreg}</ul>`;
@@ -166,6 +198,12 @@ function render(): void {
   document.querySelector("#export")!.addEventListener("click", onExport);
   document.querySelector("#undo")!.addEventListener("click", () => { doc!.undo(); render(); });
   document.querySelector("#redo")!.addEventListener("click", () => { doc!.redo(); render(); });
+  document.querySelectorAll<HTMLButtonElement>("[data-play]").forEach((btn) =>
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void playClip(btn.dataset.play!);
+    }),
+  );
   document.querySelectorAll("#list li").forEach((li) =>
     li.addEventListener("click", () => {
       selected = Number((li as HTMLElement).dataset.i);
