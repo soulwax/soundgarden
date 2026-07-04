@@ -109,10 +109,14 @@ function render(): void {
   const fields = Object.keys(entry)
     .map((k) => fieldInput(k, (entry as Record<string, unknown>)[k]))
     .join("");
+  // The engine's merge applies `remove` FIRST and then upserts overlay
+  // entries, so an id that is both removed and overridden by the overlay is
+  // still present in-game — hiding an "override" row would be a silent
+  // no-op. Only offer "Hide from mod" for untouched vanilla rows.
   const hideRestoreButton = selectedRow
     ? selectedRow.hidden
       ? `<button id="restore-entry" type="button">Restore</button>`
-      : selectedRow.origin !== "mod"
+      : selectedRow.origin === "vanilla"
         ? `<button id="hide-entry" type="button">Hide from mod</button>`
         : ""
     : "";
@@ -359,6 +363,7 @@ async function onExport(): Promise<void> {
  *  `doc` becomes the mod's overlay manifest; `baseEntries` is the vanilla
  *  effective view rendered behind it via computeEffective. */
 async function switchMod(next: string | null): Promise<void> {
+  const previousModId = modId;
   modId = next;
   proposals = [];
   if (!doc) {
@@ -372,9 +377,32 @@ async function switchMod(next: string | null): Promise<void> {
     return;
   }
   const eff = await bridge.effective(kind);
-  baseEntries = eff.ok ? (JSON.parse(eff.output).entries as Array<Record<string, unknown>>) : [];
+  if (!eff.ok) {
+    // Don't fall back to an empty base — that would silently enter a broken
+    // mod mode with every vanilla row missing. Abort and keep the previous
+    // doc/state untouched.
+    modId = previousModId;
+    setStatus(eff.output);
+    render();
+    return;
+  }
+  baseEntries = JSON.parse(eff.output).entries as Array<Record<string, unknown>>;
   const path = overlayPath(kind, modId);
   const loaded = await bridge.loadManifest(path, kind);
+  if (!loaded.ok) {
+    // A missing overlay (new mod, nothing authored yet) is expected and
+    // should start from a fresh empty doc. A malformed overlay file is not —
+    // starting fresh there would let a later Save clobber the real broken
+    // file with an empty manifest. The CLI's stable read-error prefix for a
+    // missing file is "cannot read '<path>': ..."; anything else (e.g. "is
+    // not valid TOML/JSON") is a parse failure and must abort instead.
+    if (!loaded.output.includes("cannot read")) {
+      modId = previousModId;
+      setStatus(loaded.output);
+      render();
+      return;
+    }
+  }
   doc = AudioDoc.fromJson(kind, loaded.ok ? loaded.output : JSON.stringify({ [wireKey(kind)]: [] }));
   openPath = path;
   selected = 0;
