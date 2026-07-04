@@ -94,5 +94,28 @@ npm run tauri:build # NSIS Windows installer
   `llm_suggest`, and the proposal panel.
 - **S9 (open):** studio identity pass (dark-fantasy skin, real icon).
 - **S10 (open):** NSIS packaging polish + installer signing.
-- **S11+ (open):** audition playback, waveform previews, voice-profile tuning
-  aids, Phase 2 procedural synthesis (own spec).
+- **S11+ (open):** waveform previews, voice-profile tuning aids, Phase 2
+  procedural synthesis (own spec).
+
+## Status — Phase 1.5 (mod authoring + audition)
+
+- **Engine overlays via new `audio` CLI subcommands (done):** the game-side
+  `audio` CLI grew `mods` (list installed mod ids), `effective --kind <kind>
+  [--mod <id>]` (merged base+overlay view with per-entry `"origin"` tags),
+  `init-mod <id> --name <name>` (scaffold a `Mods/<id>/mod.toml`), and overlay
+  awareness in `validate` (`--mod-root`) and `scan --mod`. Overlay files add or
+  override entries and can `remove = [...]` vanilla ids by string id.
+- **Mod authoring mode (done):** the studio adds a mod switcher (vanilla ↔
+  installed mods), provenance badges (vanilla / mod / overlay) on every row,
+  copy-on-write edits — editing a vanilla row while a mod is active forks it
+  into that mod's overlay instead of touching the vanilla manifest — hide /
+  restore of vanilla entries through the overlay's `remove` list, and
+  overlay-file export to `Mods/<id>/Assets/Data/<kind>.d/<id>.toml` (one
+  overlay file per mod per kind; hand-authored extras in the same directory
+  stay read-only to the studio).
+- **Audition playback (done):** a shared per-row ▶ control plays clips
+  in-studio through the new `read_clip` bridge command, so a modder can hear a
+  cue before exporting it.
+- **`GAME_ROOT` cwd fix (done):** the Tauri bridge resolves the game repo root
+  explicitly instead of trusting the process working directory, so commands
+  run correctly regardless of how the app was launched.
