@@ -1,6 +1,8 @@
 import { AudioDoc, type ManifestKind } from "./doc";
 import * as bridge from "./bridge";
 import { suggestId } from "./id";
+import { computeEffective, forkEntry, hideEntry, unhideEntry } from "./overlay";
+import { overlayPath, wireKey } from "./modmode";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 let doc: AudioDoc | null = null;
@@ -11,6 +13,13 @@ let findings: Array<{ level: string; message: string }> = [];
 let aiEnabled = false;
 let knownCategories: string[] = [];
 
+// Mod-authoring mode: null modId is Vanilla; a non-null modId means `doc` IS
+// the mod's overlay manifest, and `baseEntries` holds the vanilla effective
+// view rendered behind it (see computeEffective in overlay.ts).
+let modId: string | null = null;
+let modList: Array<{ id: string; name: string }> = [];
+let baseEntries: Array<Record<string, unknown>> | null = null;
+
 type Proposal = { path: string; id: string; category?: string; loop?: boolean };
 let proposals: Proposal[] = [];
 
@@ -20,7 +29,7 @@ async function refreshScan(): Promise<void> {
     unregistered = [];
     return;
   }
-  const res = await bridge.scan();
+  const res = await bridge.scan(undefined, modId ?? undefined);
   unregistered = res.ok ? (JSON.parse(res.output) as Array<{ path: string; ext: string }>) : [];
 }
 
@@ -46,24 +55,67 @@ function kindFromPath(path: string): ManifestKind {
   return "sfx";
 }
 
+/** Options for the ribbon mod selector: Vanilla, each installed mod, then a
+ *  trailing "New mod…" action entry. Shared by both render branches. */
+function modOptions(): string {
+  return [
+    `<option value="">Vanilla</option>`,
+    ...modList.map(
+      (m) => `<option value="${m.id}" ${m.id === modId ? "selected" : ""}>${m.name || m.id}</option>`,
+    ),
+    `<option value="__new__">New mod…</option>`,
+  ].join("");
+}
+
+function wireModSelect(): void {
+  document.querySelector<HTMLSelectElement>("#mod-select")?.addEventListener("change", (e) => {
+    const value = (e.target as HTMLSelectElement).value;
+    if (value === "__new__") {
+      void onNewMod();
+      return;
+    }
+    void switchMod(value === "" ? null : value);
+  });
+}
+
 function render(): void {
   if (!doc) {
     app.innerHTML = `
       <header class="ribbon"><h1>soundgarden</h1>
         <button id="open">Open manifest…</button>
+        <label>Mod<select id="mod-select">${modOptions()}</select></label>
         <span id="status">Open sfx.toml / music.toml / voices.toml to begin.</span>
       </header>`;
     document.querySelector("#open")!.addEventListener("click", onOpen);
+    wireModSelect();
     return;
   }
+  const inModMode = Boolean(modId && baseEntries);
+  const effectiveRows = inModMode ? computeEffective(baseEntries!, doc.manifest) : null;
   const entries = doc.entries as unknown as Array<Record<string, unknown>>;
-  const rows = entries
-    .map((e, i) => `<li class="${i === selected ? "sel" : ""}" data-i="${i}">${String(e.id)}</li>`)
-    .join("");
-  const entry = entries[selected] ?? {};
+  const rows = effectiveRows
+    ? effectiveRows
+        .map((r, i) => {
+          const badge = r.origin === "vanilla" ? "" : `<span class="badge ${r.origin}">${r.origin}</span>`;
+          const cls = [i === selected ? "sel" : "", r.hidden ? "hidden-row" : ""].join(" ").trim();
+          return `<li class="${cls}" data-i="${i}">▶ ${String(r.entry.id)} ${badge}</li>`;
+        })
+        .join("")
+    : entries
+        .map((e, i) => `<li class="${i === selected ? "sel" : ""}" data-i="${i}">${String(e.id)}</li>`)
+        .join("");
+  const selectedRow = effectiveRows ? effectiveRows[selected] : null;
+  const entry = (selectedRow ? selectedRow.entry : entries[selected]) ?? {};
   const fields = Object.keys(entry)
     .map((k) => fieldInput(k, (entry as Record<string, unknown>)[k]))
     .join("");
+  const hideRestoreButton = selectedRow
+    ? selectedRow.hidden
+      ? `<button id="restore-entry" type="button">Restore</button>`
+      : selectedRow.origin !== "mod"
+        ? `<button id="hide-entry" type="button">Hide from mod</button>`
+        : ""
+    : "";
   const unreg = unregistered
     .map((u, i) => `<li class="unreg" data-u="${i}">＋ ${u.path}</li>`)
     .join("");
@@ -90,6 +142,7 @@ function render(): void {
     <header class="ribbon">
       <h1>soundgarden</h1>
       <button id="open">Open…</button>
+      <label>Mod<select id="mod-select">${modOptions()}</select></label>
       <button id="save" ${doc.dirty ? "" : "disabled"}>Save</button>
       <button id="export" class="gold">Export to game</button>
       <button id="undo" ${doc.canUndo ? "" : "disabled"}>↶</button>
@@ -100,10 +153,11 @@ function render(): void {
     </header>
     <main class="cols">
       <section class="library"><ul id="list">${rows}</ul>${unregSection}</section>
-      <section class="inspector">${proposalPanel}<form id="form">${fields}</form></section>
+      <section class="inspector">${proposalPanel}<form id="form">${fields}</form>${hideRestoreButton}</section>
     </main>`;
 
   document.querySelector("#open")!.addEventListener("click", onOpen);
+  wireModSelect();
   document.querySelector("#save")!.addEventListener("click", onSave);
   document.querySelector("#export")!.addEventListener("click", onExport);
   document.querySelector("#undo")!.addEventListener("click", () => { doc!.undo(); render(); });
@@ -130,6 +184,18 @@ function render(): void {
   document.querySelectorAll<HTMLInputElement>("#form [data-key]").forEach((input) =>
     input.addEventListener("change", () => onField(input)),
   );
+  document.querySelector("#hide-entry")?.addEventListener("click", () => {
+    if (!doc || !selectedRow) return;
+    const id = String(selectedRow.entry.id);
+    doc.edit((m) => hideEntry(m, id));
+    render();
+  });
+  document.querySelector("#restore-entry")?.addEventListener("click", () => {
+    if (!doc || !selectedRow) return;
+    const id = String(selectedRow.entry.id);
+    doc.edit((m) => unhideEntry(m, id));
+    render();
+  });
 }
 
 /** Send the unregistered clips to Gemini; parsed proposals render as
@@ -170,7 +236,9 @@ function applyProposal(i: number): void {
   render();
 }
 
-/** Register an on-disk clip into the open manifest with a suggested kebab id. */
+/** Register an on-disk clip into the open manifest with a suggested kebab id.
+ *  In mod mode `doc` IS the overlay, so this pushes straight into it; the
+ *  effective view then shows the new row with a "mod" badge. */
 function addUnregistered(i: number): void {
   if (!doc) return;
   const clip = unregistered[i];
@@ -184,7 +252,13 @@ function addUnregistered(i: number): void {
     }
   });
   unregistered.splice(i, 1);
-  selected = doc.entries.length - 1;
+  if (modId && baseEntries) {
+    const rows = computeEffective(baseEntries, doc.manifest);
+    const idx = rows.findIndex((r) => String(r.entry.id) === id);
+    selected = idx >= 0 ? idx : rows.length - 1;
+  } else {
+    selected = doc.entries.length - 1;
+  }
   render();
 }
 
@@ -202,20 +276,21 @@ function onField(input: HTMLInputElement): void {
   const key = input.dataset.key!;
   const raw: unknown =
     input.type === "checkbox" ? input.checked : input.type === "number" ? Number(input.value) : input.value;
-  doc.edit((m) => {
-    (m.entries[selected] as unknown as Record<string, unknown>)[key] = raw;
-  });
+  if (modId && baseEntries) {
+    const row = computeEffective(baseEntries, doc.manifest)[selected];
+    if (!row) return;
+    doc.edit((m) => forkEntry(m, row.entry, { [key]: raw }));
+  } else {
+    doc.edit((m) => {
+      (m.entries[selected] as unknown as Record<string, unknown>)[key] = raw;
+    });
+  }
   render();
 }
 
-async function onOpen(): Promise<void> {
-  const path = await bridge.openManifestDialog();
-  if (!path) return;
-  const kind = kindFromPath(path);
-  const res = await bridge.loadManifest(path);
-  if (!res.ok) return setStatus(res.output);
-  doc = AudioDoc.fromJson(kind, res.output);
-  openPath = path;
+/** Shared post-load setup: AI availability, known categories, scan + validate.
+ *  Used by both the dialog-based `onOpen` and mod-mode's vanilla reload. */
+async function afterDocLoaded(): Promise<void> {
   selected = 0;
   proposals = [];
   aiEnabled = await bridge.llmAvailable();
@@ -229,12 +304,42 @@ async function onOpen(): Promise<void> {
   }
   await refreshScan();
   await refreshValidation();
+}
+
+/** Load the vanilla manifest for `kind` from its canonical path — the same
+ *  load `onOpen` performs, extracted so mode-switching back to Vanilla can
+ *  reuse it without a file dialog. */
+async function openVanilla(kind: ManifestKind): Promise<void> {
+  const path = `Assets/Data/${kind}.toml`;
+  const res = await bridge.loadManifest(path, kind);
+  if (!res.ok) return setStatus(res.output);
+  doc = AudioDoc.fromJson(kind, res.output);
+  openPath = path;
+  await afterDocLoaded();
+  render();
+}
+
+async function onOpen(): Promise<void> {
+  const path = await bridge.openManifestDialog();
+  if (!path) return;
+  const kind = kindFromPath(path);
+  const res = await bridge.loadManifest(path);
+  if (!res.ok) return setStatus(res.output);
+  doc = AudioDoc.fromJson(kind, res.output);
+  openPath = path;
+  await afterDocLoaded();
+  if (modId) {
+    // A manifest of a different kind was opened via dialog while mod mode was
+    // active — re-apply the mod context (overlay + base) to this new kind.
+    await switchMod(modId);
+    return;
+  }
   render();
 }
 
 async function onSave(): Promise<void> {
   if (!doc || !openPath) return;
-  const res = await bridge.saveManifest(openPath, doc.toJson());
+  const res = await bridge.saveManifest(openPath, doc.toJson(), doc.kind);
   if (res.ok) doc.markSaved();
   await refreshValidation();
   setStatus(res.output);
@@ -243,8 +348,56 @@ async function onSave(): Promise<void> {
 
 async function onExport(): Promise<void> {
   if (!doc || !openPath) return;
-  const res = await bridge.exportManifest(openPath, doc.toJson());
+  const res = await bridge.exportManifest(openPath, doc.toJson(), doc.kind);
   setStatus(res.output);
+}
+
+/** Directory-name / wire-key resolution for the overlay path and the empty
+ *  fresh-mod document now live in ./modmode (pure, no DOM). */
+
+/** Enter/leave mod-authoring mode for the currently open kind. In mod mode
+ *  `doc` becomes the mod's overlay manifest; `baseEntries` is the vanilla
+ *  effective view rendered behind it via computeEffective. */
+async function switchMod(next: string | null): Promise<void> {
+  modId = next;
+  proposals = [];
+  if (!doc) {
+    render();
+    return;
+  }
+  const kind = doc.kind;
+  if (modId === null) {
+    baseEntries = null;
+    await openVanilla(kind);
+    return;
+  }
+  const eff = await bridge.effective(kind);
+  baseEntries = eff.ok ? (JSON.parse(eff.output).entries as Array<Record<string, unknown>>) : [];
+  const path = overlayPath(kind, modId);
+  const loaded = await bridge.loadManifest(path, kind);
+  doc = AudioDoc.fromJson(kind, loaded.ok ? loaded.output : JSON.stringify({ [wireKey(kind)]: [] }));
+  openPath = path;
+  selected = 0;
+  await refreshScan();
+  await refreshValidation();
+  render();
+}
+
+async function onNewMod(): Promise<void> {
+  const id = window.prompt("New mod id (kebab-case, e.g. my-audio-pack):")?.trim();
+  if (!id) {
+    render();
+    return;
+  }
+  const res = await bridge.initMod(id);
+  if (!res.ok) {
+    setStatus(res.output);
+    render();
+    return;
+  }
+  const listed = await bridge.mods();
+  modList = listed.ok ? JSON.parse(listed.output) : modList;
+  await switchMod(id);
 }
 
 function setStatus(msg: string): void {
@@ -258,4 +411,10 @@ window.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.key.toLowerCase() === "y") { doc.redo(); render(); e.preventDefault(); }
 });
 
-render();
+async function init(): Promise<void> {
+  const res = await bridge.mods();
+  modList = res.ok ? JSON.parse(res.output) : [];
+  render();
+}
+
+void init();

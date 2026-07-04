@@ -23,3 +23,9 @@ body { margin: 0; font-family: system-ui, sans-serif; background: #10131a; color
 .proposals li { display: flex; gap: .5rem; align-items: center; margin: .25rem 0; }
 .proposals code { color: #e6c069; }
 .library h3 { margin: .8rem .75rem .2rem; font-size: .8rem; text-transform: uppercase; opacity: .7; }
+.badge { font-size: .7rem; padding: 0 .35rem; border-radius: 3px; margin-left: .35rem; }
+.badge.mod { background: #1e3a24; color: #9fe0a8; }
+.badge.override { background: #3a341e; color: #e6d79f; }
+.hidden-row { opacity: .45; text-decoration: line-through; }
+#mod-select { background: #0e1118; color: #e8e6df; border: 1px solid #2a3140; padding: .3rem; font: inherit; }
+.ribbon label { display: flex; align-items: center; gap: .35rem; font-size: .85rem; }
