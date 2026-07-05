@@ -31,6 +31,17 @@ const CLIP_MIME: Record<string, string> = {
 type Proposal = { path: string; id: string; category?: string; loop?: boolean };
 let proposals: Proposal[] = [];
 
+/** Escape a value for safe interpolation into an HTML template string. Apply
+ *  this to any data that originates from files (mod names/ids, entry ids,
+ *  paths, field values) — never to our own literal markup or class names. */
+function esc(s: unknown): string {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 /** Play a clip from an asset path, managing the shared audio element and Blob URL. */
 async function playClip(assetPath: string): Promise<void> {
   const res = await bridge.readClip(assetPath, modId ?? undefined);
@@ -87,7 +98,8 @@ function modOptions(): string {
   return [
     `<option value="">Vanilla</option>`,
     ...modList.map(
-      (m) => `<option value="${m.id}" ${m.id === modId ? "selected" : ""}>${m.name || m.id}</option>`,
+      (m) =>
+        `<option value="${esc(m.id)}" ${m.id === modId ? "selected" : ""}>${esc(m.name || m.id)}</option>`,
     ),
     `<option value="__new__">New mod…</option>`,
   ].join("");
@@ -125,15 +137,15 @@ function render(): void {
           const badge = r.origin === "vanilla" ? "" : `<span class="badge ${r.origin}">${r.origin}</span>`;
           const cls = [i === selected ? "sel" : "", r.hidden ? "hidden-row" : ""].join(" ").trim();
           const asset = assetOf(r.entry as Record<string, unknown>);
-          const playBtn = asset ? `<button class="play" data-play="${asset}">▶</button>` : "";
-          return `<li class="${cls}" data-i="${i}">${playBtn} ${String(r.entry.id)} ${badge}</li>`;
+          const playBtn = asset ? `<button class="play" data-play="${esc(asset)}">▶</button>` : "";
+          return `<li class="${cls}" data-i="${i}">${playBtn} ${esc(r.entry.id)} ${badge}</li>`;
         })
         .join("")
     : entries
         .map((e, i) => {
           const asset = assetOf(e);
-          const playBtn = asset ? `<button class="play" data-play="${asset}">▶</button>` : "";
-          return `<li class="${i === selected ? "sel" : ""}" data-i="${i}">${playBtn} ${String(e.id)}</li>`;
+          const playBtn = asset ? `<button class="play" data-play="${esc(asset)}">▶</button>` : "";
+          return `<li class="${i === selected ? "sel" : ""}" data-i="${i}">${playBtn} ${esc(e.id)}</li>`;
         })
         .join("");
   const selectedRow = effectiveRows ? effectiveRows[selected] : null;
@@ -153,7 +165,10 @@ function render(): void {
         : ""
     : "";
   const unreg = unregistered
-    .map((u, i) => `<li class="unreg" data-u="${i}"><button class="play" data-play="${u.path}">▶</button> ${u.path}</li>`)
+    .map(
+      (u, i) =>
+        `<li class="unreg" data-u="${i}"><button class="play" data-play="${esc(u.path)}">▶</button> ${esc(u.path)}</li>`,
+    )
     .join("");
   const unregSection =
     doc.kind === "voices" ? "" : `<h3>Unregistered</h3><ul id="unreg-list">${unreg}</ul>`;
@@ -165,7 +180,7 @@ function render(): void {
   const propRows = proposals
     .map(
       (p, i) =>
-        `<li><code>${p.id}</code> ← ${p.path} <em>${p.category ?? ""}</em>
+        `<li><code>${esc(p.id)}</code> ← ${esc(p.path)} <em>${esc(p.category ?? "")}</em>
          <button data-apply="${i}">apply</button><button data-discard="${i}">✕</button></li>`,
     )
     .join("");
@@ -306,11 +321,11 @@ function addUnregistered(i: number): void {
 
 function fieldInput(key: string, value: unknown): string {
   if (typeof value === "boolean") {
-    return `<label>${key}<input type="checkbox" data-key="${key}" ${value ? "checked" : ""}/></label>`;
+    return `<label>${esc(key)}<input type="checkbox" data-key="${esc(key)}" ${value ? "checked" : ""}/></label>`;
   }
   const type = typeof value === "number" ? "number" : "text";
   const step = type === "number" ? ' step="0.01"' : "";
-  return `<label>${key}<input type="${type}"${step} data-key="${key}" value="${String(value)}"/></label>`;
+  return `<label>${esc(key)}<input type="${type}"${step} data-key="${esc(key)}" value="${esc(value)}"/></label>`;
 }
 
 function onField(input: HTMLInputElement): void {
@@ -390,7 +405,10 @@ async function onSave(): Promise<void> {
 
 async function onExport(): Promise<void> {
   if (!doc || !openPath) return;
-  const res = await bridge.exportManifest(openPath, doc.toJson(), doc.kind);
+  // The audio CLI runs with cwd = game root, so a relative mod root resolves
+  // correctly there even though this app's own cwd is tools/soundgarden.
+  const modRoot = modId ? `Mods/${modId}` : undefined;
+  const res = await bridge.exportManifest(openPath, doc.toJson(), doc.kind, modRoot);
   setStatus(res.output);
 }
 
@@ -401,6 +419,12 @@ async function onExport(): Promise<void> {
  *  `doc` becomes the mod's overlay manifest; `baseEntries` is the vanilla
  *  effective view rendered behind it via computeEffective. */
 async function switchMod(next: string | null): Promise<void> {
+  if (doc && doc.dirty) {
+    if (!window.confirm("Discard unsaved changes and switch mod context?")) {
+      render();
+      return;
+    }
+  }
   const previousModId = modId;
   modId = next;
   proposals = [];

@@ -177,7 +177,12 @@ fn save_manifest(path: String, json: String, kind: Option<String>) -> Result<Str
 /// Export to the game: validate first, then write. Refuses to write an invalid
 /// manifest, so the editor can never break the running game.
 #[tauri::command]
-fn export_manifest(path: String, json: String, kind: Option<String>) -> Result<String, String> {
+fn export_manifest(
+    path: String,
+    json: String,
+    kind: Option<String>,
+    mod_root: Option<String>,
+) -> Result<String, String> {
     let tmp = temp_path("json");
     let tmp_str = tmp.to_string_lossy().into_owned();
     std::fs::write(&tmp, &json).map_err(|e| format!("stage manifest for export: {e}"))?;
@@ -185,6 +190,9 @@ fn export_manifest(path: String, json: String, kind: Option<String>) -> Result<S
     let mut validate_args: Vec<String> = vec!["validate".into(), tmp_str.clone()];
     if let Some(k) = &kind {
         validate_args.extend(["--kind".into(), k.clone()]);
+    }
+    if let Some(m) = &mod_root {
+        validate_args.extend(["--mod-root".into(), m.clone()]);
     }
     let validate_refs: Vec<&str> = validate_args.iter().map(String::as_str).collect();
     if let Err(findings) = run_audio(&validate_refs) {

@@ -76,8 +76,13 @@ export function saveManifest(path: string, json: string, kind?: string): Promise
   return call("save_manifest", { path, json, kind: kind ?? null });
 }
 /** Export to the game: validates first, refuses invalid. */
-export function exportManifest(path: string, json: string, kind?: string): Promise<BridgeResult> {
-  return call("export_manifest", { path, json, kind: kind ?? null });
+export function exportManifest(
+  path: string,
+  json: string,
+  kind?: string,
+  modRoot?: string,
+): Promise<BridgeResult> {
+  return call("export_manifest", { path, json, kind: kind ?? null, modRoot: modRoot ?? null });
 }
 
 /** Whether a Gemini key is configured (keychain / env / secrets.toml). */
