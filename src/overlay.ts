@@ -47,7 +47,10 @@ export function computeEffective(
 }
 
 /** Copy-on-write: copy `entry` into the overlay (or reuse its existing copy)
- *  and apply `patch`. */
+ *  and apply `patch`. An override supersedes a `remove` entry (the engine's
+ *  merge applies remove first, then upsert), so editing a hidden vanilla row
+ *  also clears its stale remove entry — otherwise it would linger forever
+ *  with no way to see or clear it once the row is visibly un-hidden. */
 export function forkEntry(
   m: Manifest,
   entry: Record<string, unknown>,
@@ -61,6 +64,7 @@ export function forkEntry(
   } else {
     entries.push({ ...entry, ...patch });
   }
+  unhideEntry(m, id);
 }
 
 export function hideEntry(m: Manifest, id: string): void {

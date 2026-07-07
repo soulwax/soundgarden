@@ -48,4 +48,12 @@ describe("mutators (run inside doc.edit)", () => {
     unhideEntry(m, "a");
     expect(m.remove).toEqual([]);
   });
+  it("forking a hidden vanilla entry clears its stale remove entry", () => {
+    const m = overlay();
+    hideEntry(m, "a");
+    expect(m.remove).toEqual(["a"]);
+    forkEntry(m, base[0], { category: "impact" });
+    expect(m.remove).toEqual([]);
+    expect(m.entries).toEqual([{ id: "a", asset: "A.ogg", category: "impact", duration: 1 }]);
+  });
 });
