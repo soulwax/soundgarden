@@ -30,15 +30,13 @@ base64 = "0.22"
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 
-# The dist profile (game repo scripts/dist.ps1 / dist.sh build with
-# `tauri build -- --profile speed_trace`): full-speed optimization plus
-# out-of-line debug info so trace tools can symbolize the shipped app. Mirrors
-# [profile.speed_trace] in the game's Cargo.toml — keep the two in step.
+# Maximum-performance dist profile. Mirrors [profile.speed_trace] in the
+# game's Cargo.toml — keep the two in step.
 [profile.speed_trace]
 inherits = "release"
 opt-level = 3
-lto = "thin"
+lto = "fat"
 codegen-units = 1
-debug = "full"
-split-debuginfo = "packed"
-strip = "none"
+incremental = false
+debug = false
+strip = "symbols"
